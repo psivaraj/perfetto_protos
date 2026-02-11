@@ -1,9 +1,8 @@
 use std::path::Path;
+use std::path::PathBuf;
 use std::process::Command;
-use std::process::Stdio;
 
 use std::env;
-use std::path::PathBuf;
 
 #[allow(non_camel_case_types)]
 enum Arch {
@@ -57,6 +56,8 @@ pub fn protoc_bin_path() -> Result<PathBuf, Error> {
 fn main() {
     // The proto files defining the message types we want to support.
     let roots = ["protos/perfetto/trace/trace.proto"];
+    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR must be set by cargo"));
+    let depfile_path = out_dir.join("perfetto_protos.deps");
     let protoc = match protoc_bin_path() {
         Ok(path) => match path.to_str() {
             Some(s) => s.to_owned(),
@@ -75,16 +76,16 @@ fn main() {
     };
 
     // Find the transitive deps of `roots`.
+    let dependency_out_arg = format!("--dependency_out={}", depfile_path.display());
     let child = Command::new(protoc.clone())
-        .arg("--dependency_out=/dev/stdout")
+        .arg(dependency_out_arg)
         .arg("--descriptor_set_out=/dev/null")
         .args(roots)
-        .stdout(Stdio::piped())
         .spawn()
         .unwrap();
     let result = child.wait_with_output().unwrap();
     assert!(result.status.success());
-    let output = core::str::from_utf8(&result.stdout).unwrap();
+    let output = std::fs::read_to_string(&depfile_path).unwrap();
     let output = output.replace("\\\n", " ");
     let output = output.replace("/dev/null: ", "");
     let files: Vec<&str> = output.split_ascii_whitespace().collect();
